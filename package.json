@@ -1,0 +1,9 @@
+{
+  "name": "cade-meu-prof-turma",
+  "private": true,
+  "type": "module",
+  "description": "Functions da Netlify que protegem os dados de horário/professor atrás de senha (ver README.md).",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}

@@ -1,0 +1,13 @@
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Nunca deixa o schedule_data.json (se alguém esquecer um localmente) ser publicado como
+# arquivo estático — hoje ele nem deveria existir no repo, isso é só um cinto de segurança.
+[[headers]]
+  for = "/schedule_data.json"
+  [headers.values]
+    X-Robots-Tag = "noindex"
