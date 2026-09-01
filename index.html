@@ -541,6 +541,26 @@
   }
   .resetBtn:active { opacity: 0.85; }
 
+  /* Exportar resultado (imagem / PDF) */
+  .results-actions {
+    display: none;
+    gap: 8px;
+    margin: 2px 0 14px;
+  }
+  .exportBtn {
+    flex: 1;
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 10px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .exportBtn:active { opacity: 0.85; }
+  .exportBtn:disabled { opacity: 0.6; cursor: default; }
+
   /* Fotos-fonte */
   .fotos-note {
     color: var(--muted);
@@ -741,6 +761,10 @@
   </div>
 
   <div class="count" id="count"></div>
+  <div class="results-actions" id="resultsActions">
+    <button class="exportBtn" id="exportImgBtn">🖼️ Salvar como imagem</button>
+    <button class="exportBtn" id="exportPdfBtn">📄 Salvar como PDF</button>
+  </div>
   <div class="results" id="results"></div>
   </div><!-- /viewBuscar -->
 
@@ -1053,6 +1077,10 @@ const modeTabs = document.getElementById('modeTabs');
 const dayChips = document.getElementById('dayChips');
 const searchInput = document.getElementById('searchInput');
 const resultsEl = document.getElementById('results');
+const resultsActions = document.getElementById('resultsActions');
+const exportImgBtn = document.getElementById('exportImgBtn');
+const exportPdfBtn = document.getElementById('exportPdfBtn');
+let lastExportData = null; // guarda o último resultado renderizado ({list:[...]} ou {groups:{...}}), pra exportar exatamente o que a pessoa está vendo
 const hintEl = document.getElementById('hint');
 const countEl = document.getElementById('count');
 const agendaToggleWrap = document.getElementById('agendaToggleWrap');
@@ -1129,6 +1157,7 @@ function render() {
   if (!q) {
     countEl.textContent = '';
     resultsEl.innerHTML = '<div class="empty">Digite algo para buscar ✦</div>';
+    resultsActions.style.display = 'none';
     return;
   }
 
@@ -1146,10 +1175,12 @@ function render() {
 
   if (!filtered.length) {
     resultsEl.innerHTML = '<div class="empty">Nada encontrado 🤔<br>Confira a grafia ou tente outro termo.</div>';
+    resultsActions.style.display = 'none';
     return;
   }
 
   const conflicts = computeConflicts();
+  resultsActions.style.display = 'flex';
 
   if (canGroup && agendaMode) {
     // Agenda geral: agrupa por dia da semana, mostrando onde a pessoa/turma aparece em cada dia
@@ -1158,6 +1189,7 @@ function render() {
       if (!groups[d.dia]) groups[d.dia] = [];
       groups[d.dia].push(d);
     });
+    lastExportData = { groups };
     Object.keys(groups).sort((a,b) => dayOrder[a]-dayOrder[b]).forEach(dia => {
       const wrap = document.createElement('div');
       wrap.className = 'daygroup';
@@ -1168,6 +1200,7 @@ function render() {
     return;
   }
 
+  lastExportData = { list: filtered };
   resultsEl.innerHTML = filtered.map(d => cardHTML(d, {conflicts})).join('');
 }
 
@@ -1202,6 +1235,147 @@ sortSelect.addEventListener('change', () => {
   sortBy = sortSelect.value;
   render();
 });
+
+/* ===================== EXPORTAR RESULTADO (imagem / PDF) ===================== */
+// Gera um card "para impressão" à parte (fora da tela) com os mesmos resultados
+// que a pessoa está vendo, e o transforma em PNG ou PDF. As bibliotecas só são
+// carregadas do CDN na primeira vez que alguém realmente clica em exportar.
+
+function exportColors() {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  return isLight
+    ? { bg: '#f6f7f9', panel: '#ffffff', border: '#dde2ea', text: '#1c1f26', muted: '#626b79' }
+    : { bg: '#0f1115', panel: '#171a21', border: '#2a2f3a', text: '#e8eaed', muted: '#9aa1ac' };
+}
+
+function exportCardHTML(d, opts, c) {
+  const color = courseColor(d.turma);
+  const borderLeft = color ? `border-left:4px solid ${color};` : '';
+  return `<div style="background:${c.panel};border:1px solid ${c.border};${borderLeft}border-radius:12px;padding:12px 14px;margin-bottom:8px;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px;">
+      <span style="font-weight:700;font-size:15px;color:${color || c.text};">${d.turma}</span>
+      <span style="font-size:11px;color:${c.muted};white-space:nowrap;">${opts.hideDia ? '' : d.dia + ' · '}${turnoLabel(d.turno)} · ${d.horario}</span>
+    </div>
+    <div style="font-size:13px;color:${c.text};display:flex;gap:14px;flex-wrap:wrap;">
+      <span><b style="color:${c.muted};font-weight:500;">Sala</b> ${d.sala}</span>
+      <span><b style="color:${c.muted};font-weight:500;">Prof.</b> ${d.professor}</span>
+    </div>
+  </div>`;
+}
+
+function buildExportNode() {
+  const c = exportColors();
+  const modeLabel = {sala:'Sala', turma:'Turma', professor:'Professor'}[mode];
+  const dayLabel = dayFilter === 'todos' ? 'Todos os dias' : dayFilter;
+  const term = searchInput.value.trim();
+
+  let bodyHTML;
+  if (lastExportData.groups) {
+    bodyHTML = Object.keys(lastExportData.groups).sort((a,b) => dayOrder[a]-dayOrder[b]).map(dia => {
+      const items = lastExportData.groups[dia].map(d => exportCardHTML(d, {hideDia:true}, c)).join('');
+      return `<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:${c.muted};border-bottom:1px solid ${c.border};padding-bottom:6px;margin-bottom:8px;">${dia}</div>${items}</div>`;
+    }).join('');
+  } else {
+    bodyHTML = lastExportData.list.map(d => exportCardHTML(d, {}, c)).join('');
+  }
+
+  const node = document.createElement('div');
+  node.style.cssText = `width:640px;padding:26px;background:${c.bg};color:${c.text};font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;box-sizing:border-box;`;
+  node.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+      <img src="logo.svg" style="width:30px;height:30px;border-radius:8px;">
+      <div style="font-weight:700;font-size:16px;">Cadê meu prof/turma?</div>
+    </div>
+    <div style="color:${c.muted};font-size:12px;margin-bottom:18px;">Fatec Baixada Santista · ${modeLabel}: <b style="color:${c.text};">${term || '—'}</b> · ${dayLabel}</div>
+    ${bodyHTML}
+    <div style="margin-top:16px;padding-top:10px;border-top:1px solid ${c.border};font-size:10px;color:${c.muted};">Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+  `;
+  return node;
+}
+
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => resolve(true);
+    s.onerror = () => reject(new Error('Falha ao carregar ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function ensureExportLibs() {
+  if (!window.html2canvas) {
+    await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+  }
+  if (!window.jspdf) {
+    await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  }
+}
+
+function exportFilename(ext) {
+  const modeSlug = {sala:'sala', turma:'turma', professor:'professor'}[mode];
+  const termSlug = normalize(searchInput.value.trim()).replace(/[^a-z0-9]+/g,'-').replace(/(^-+|-+$)/g,'') || 'busca';
+  return `cade-meu-prof_${modeSlug}-${termSlug}.${ext}`;
+}
+
+async function renderExportCanvas() {
+  const node = buildExportNode();
+  node.style.position = 'fixed';
+  node.style.left = '-9999px';
+  node.style.top = '0';
+  document.body.appendChild(node);
+  try {
+    return await window.html2canvas(node, { scale: 2, backgroundColor: null, useCORS: true });
+  } finally {
+    document.body.removeChild(node);
+  }
+}
+
+async function runExport(btn, action) {
+  if (!lastExportData) return;
+  const oldLabel = btn.textContent;
+  const otherBtn = btn === exportImgBtn ? exportPdfBtn : exportImgBtn;
+  btn.disabled = true;
+  otherBtn.disabled = true;
+  btn.textContent = 'Gerando…';
+  try {
+    await ensureExportLibs();
+    const canvas = await renderExportCanvas();
+    await action(canvas);
+  } catch (e) {
+    alert('Não consegui gerar o arquivo agora (verifique sua conexão) — ' + e.message);
+  } finally {
+    btn.disabled = false;
+    otherBtn.disabled = false;
+    btn.textContent = oldLabel;
+  }
+}
+
+exportImgBtn.addEventListener('click', () => runExport(exportImgBtn, canvas => new Promise(resolve => {
+  canvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = exportFilename('png');
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    resolve();
+  }, 'image/png');
+})));
+
+exportPdfBtn.addEventListener('click', () => runExport(exportPdfBtn, async canvas => {
+  const { jsPDF } = window.jspdf;
+  const imgData = canvas.toDataURL('image/png');
+  // canvas foi gerado em scale:2, então convertemos px -> mm já compensando isso
+  const pxToMm = px => (px / 2) * 0.264583;
+  const pdfW = pxToMm(canvas.width);
+  const pdfH = pxToMm(canvas.height);
+  const pdf = new jsPDF({ orientation: pdfW > pdfH ? 'landscape' : 'portrait', unit: 'mm', format: [pdfW, pdfH] });
+  pdf.addImage(imgData, 'PNG', 0, 0, pdfW, pdfH);
+  pdf.save(exportFilename('pdf'));
+}));
 
 hintEl.textContent = 'Carregando dados…';
 resultsEl.innerHTML = '<div class="empty">Carregando dados ✦</div>';
